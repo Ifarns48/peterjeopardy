@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jeopardy!</title>
+<style>
+  :root { --blue:#0a1a8c; --blue2:#1530c8; --gold:#ffcc33; --bg:#050b3d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:#fff; font-family:"Trebuchet MS",Arial,sans-serif; min-height:100vh; display:flex; flex-direction:column; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:10px 20px; gap:12px; flex-wrap:wrap; }
+  h1 { margin:0; font-family:Georgia,serif; letter-spacing:4px; color:var(--gold); text-shadow:2px 2px 0 #000; font-size:2rem; }
+  #roundName { color:var(--gold); font-weight:bold; letter-spacing:2px; text-transform:uppercase; }
+  button { font:inherit; cursor:pointer; border:0; border-radius:6px; padding:8px 14px; background:var(--gold); color:#000; font-weight:bold; }
+  button:hover { filter:brightness(1.1); }
+  button:disabled { opacity:.35; cursor:default; filter:none; }
+  button.ghost { background:transparent; color:#fff; border:1px solid #fff6; }
+  #board { flex:1; display:grid; grid-template-columns:repeat(6,1fr); gap:6px; padding:0 20px 12px; }
+  .cat { background:var(--blue2); display:flex; align-items:center; justify-content:center; text-align:center; text-transform:uppercase; font-weight:bold; padding:14px 6px; min-height:80px; border-radius:4px; font-size:clamp(.8rem,1.6vw,1.3rem); text-shadow:1px 1px 0 #000; }
+  .tile { background:var(--blue2); color:var(--gold); font-family:Georgia,serif; font-weight:bold; font-size:clamp(1.3rem,3.4vw,2.8rem); text-shadow:2px 2px 0 #000; border-radius:4px; display:flex; align-items:center; justify-content:center; min-height:90px; cursor:pointer; transition:transform .1s; }
+  .tile:hover { transform:scale(1.04); background:#2446ff; }
+  .tile.used { background:var(--blue); color:transparent; text-shadow:none; cursor:default; transform:none; opacity:.35; }
+  #finalPrompt { grid-column:1/-1; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:16px; font-size:1.4rem; }
+  #scores { display:flex; gap:12px; padding:0 20px 16px; justify-content:center; flex-wrap:wrap; }
+  .team { background:#fff; color:#000; border-radius:8px; min-width:160px; padding:8px 14px; text-align:center; }
+  .team b { display:block; font-size:.95rem; }
+  .team span { font-size:2rem; font-weight:bold; font-family:Georgia,serif; }
+  .team span.neg { color:#c00; }
+  .overlay { position:fixed; inset:0; background:var(--blue); display:none; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:30px; gap:18px; z-index:10; overflow:auto; }
+  .overlay.show { display:flex; }
+  .clue-cat { color:var(--gold); text-transform:uppercase; letter-spacing:2px; font-weight:bold; }
+  .clue { font-size:clamp(1.5rem,3.6vw,3rem); max-width:1000px; line-height:1.3; text-transform:uppercase; text-shadow:2px 2px 0 #000; font-family:Georgia,serif; }
+  .answer { font-size:clamp(1.3rem,3vw,2.4rem); color:var(--gold); min-height:1.4em; font-weight:bold; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; align-items:center; }
+  .award { background:#fff; color:#000; border-radius:8px; padding:8px 12px; text-align:center; }
+  .award b { display:block; margin-bottom:6px; }
+  .award button { padding:6px 12px; }
+  .yes { background:#2fb344; color:#fff; } .no { background:#d63a3a; color:#fff; }
+  #dd { color:var(--gold); font-size:2.5rem; font-family:Georgia,serif; font-weight:bold; animation:pulse 1s infinite alternate; }
+  @keyframes pulse { to { transform:scale(1.1); } }
+  input, select { font:inherit; padding:8px; border-radius:6px; border:0; }
+  .team-inputs { display:grid; gap:8px; }
+  .hint { opacity:.7; font-size:.85rem; }
+  .fw { display:flex; align-items:center; gap:10px; background:#fff; color:#000; padding:8px 12px; border-radius:8px; }
+  .fw.out { opacity:.5; }
+  @media (max-width:700px){ #board{gap:3px;padding:0 6px 8px;} .tile{min-height:60px;} }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>JEOPARDY!</h1><div id="roundName"></div></div>
+  <div class="row">
+    <button class="ghost" onclick="openSetup()">Teams</button>
+    <button id="nextBtn" onclick="goNext()"></button>
+    <button class="ghost" onclick="if(confirm('Reset the whole game? All scores and used tiles will be cleared.')) newGame()">New game</button>
+  </div>
+</header>
+
+<div id="board"></div>
+<div id="scores"></div>
+
+<!-- Clue screen -->
+<div id="clueScreen" class="overlay">
+  <div class="clue-cat" id="clueCat"></div>
+  <div id="dd" style="display:none">DAILY DOUBLE!</div>
+  <div class="row" id="ddRow" style="display:none">
+    <label>Team <select id="ddTeam" onchange="updateWagerMax()"></select></label>
+    <label>Wager <input id="ddWager" type="number" min="5" step="1" value="500" style="width:120px"></label>
+    <span class="hint" id="ddMax"></span>
+    <button onclick="startDD()">Reveal clue</button>
+  </div>
+  <div class="clue" id="clueText"></div>
+  <div class="answer" id="answerText"></div>
+  <div class="row"><button id="showBtn" onclick="showAnswer()">Show answer</button></div>
+  <div class="row" id="awards"></div>
+  <div class="row"><button class="ghost" id="closeBtn" onclick="closeClue()">No one got it / Close</button></div>
+  <div class="hint">Space = show answer · Esc = close (after the answer is shown)</div>
+</div>
+
+<!-- Final Jeopardy -->
+<div id="finalScreen" class="overlay">
+  <h1>FINAL JEOPARDY!</h1>
+  <div class="clue-cat" id="fCat"></div>
+  <div id="fBody" class="row" style="flex-direction:column"></div>
+</div>
+
+<!-- Setup -->
+<div id="setup" class="overlay">
+  <h1>Who's playing?</h1>
+  <div class="team-inputs" id="teamInputs"></div>
+  <div class="row">
+    <button class="ghost" onclick="changeTeamCount(-1)">− Team</button>
+    <button class="ghost" onclick="changeTeamCount(1)">+ Team</button>
+  </div>
+  <div class="row">
+    <button onclick="saveTeams()">Start playing</button>
+    <button class="ghost" id="setupCancel" onclick="document.getElementById('setup').classList.remove('show')">Cancel</button>
+  </div>
+</div>
+
+<script>
+const DATA = {"rounds":[{"name":"Single Jeopardy","dailyDoubles":1,"categories":[{"name":"India","clues":[{"value":200,"clue":"This city, formerly called Bombay, is the home of Bollywood.","answer":"Mumbai"},{"value":400,"clue":"He became India's first Prime Minister after independence in 1947.","answer":"Jawaharlal Nehru"},{"value":600,"clue":"This southern city is often called the Silicon Valley of India.","answer":"Bengaluru (Bangalore)"},{"value":800,"clue":"In 1930 Gandhi led a 240-mile march to the sea to protest the British tax on this commodity.","answer":"Salt"},{"value":1000,"clue":"Designed by Le Corbusier, this planned city is the shared capital of Punjab and Haryana.","answer":"Chandigarh"}]},{"name":"Movies","clues":[{"value":200,"clue":"He directed both \"Pulp Fiction\" and \"Kill Bill.\"","answer":"Quentin Tarantino"},{"value":400,"clue":"In 2020 this South Korean film became the first non-English-language movie to win Best Picture.","answer":"Parasite"},{"value":600,"clue":"He won a posthumous Oscar for playing the Joker in \"The Dark Knight.\"","answer":"Heath Ledger"},{"value":800,"clue":"This director's first three horror films were \"Get Out,\" \"Us,\" and \"Nope.\"","answer":"Jordan Peele"},{"value":1000,"clue":"Saoirse Ronan stars in this 2017 film whose title character's given name is Christine.","answer":"Lady Bird"}]},{"name":"Indiana","clues":[{"value":200,"clue":"Nicknamed \"The Brickyard,\" this 2.5-mile oval hosts the 500-mile race held every Memorial Day weekend.","answer":"Indianapolis Motor Speedway"},{"value":400,"clue":"Neil Armstrong is a famous alum of this West Lafayette university.","answer":"Purdue"},{"value":600,"clue":"The author of \"Slaughterhouse-Five\" was born in Indianapolis.","answer":"Kurt Vonnegut"},{"value":800,"clue":"In 2019 Indiana Dunes became a national park on the shore of this Great Lake.","answer":"Lake Michigan"},{"value":1000,"clue":"Nicknamed the \"Hick from French Lick,\" this Indiana native won three straight NBA MVPs with the Celtics.","answer":"Larry Bird"}]},{"name":"Washington DC","clues":[{"value":200,"clue":"This Smithsonian museum on the National Mall houses the 1903 Wright Flyer and the Apollo 11 command module.","answer":"National Air and Space Museum"},{"value":400,"clue":"This roughly 555-foot marble obelisk is the tallest structure in the District and honors the first president.","answer":"The Washington Monument"},{"value":600,"clue":"The 23rd Amendment, ratified in 1961, gave DC residents electoral votes in the contests to choose the nation's chief executive.","answer":"Presidential elections"},{"value":800,"clue":"This DC hockey team won its first Stanley Cup in 2018.","answer":"The Washington Capitals"},{"value":1000,"clue":"The Smithsonian Institution was founded in 1846 with a bequest from this Englishman who never visited America.","answer":"James Smithson"}]},{"name":"Music","clues":[{"value":200,"clue":"Taylor Swift's 2022 album with \"Anti-Hero\" has this title.","answer":"Midnights"},{"value":400,"clue":"Olivia Rodrigo's 2023 follow-up to \"SOUR\" has this four-letter, all-caps title.","answer":"GUTS"},{"value":600,"clue":"Billie Eilish's brother and frequent collaborator goes by this single name.","answer":"FINNEAS"},{"value":800,"clue":"Kendrick Lamar won the 2018 Pulitzer Prize for Music for this album.","answer":"DAMN."},{"value":1000,"clue":"The cover of Charli XCX's 2024 album Brat is a flat block of this color, which also named a viral summer trend.","answer":"Lime green"}]},{"name":"TV","clues":[{"value":200,"clue":"Walter White is a high school chemistry teacher turned drug kingpin in this AMC series.","answer":"Breaking Bad"},{"value":400,"clue":"\"The Bear\" follows a fine-dining chef who returns home to run a sandwich shop in this city.","answer":"Chicago"},{"value":600,"clue":"Logan, Kendall, Shiv, and Roman share this family surname in \"Succession.\"","answer":"Roy"},{"value":800,"clue":"Simon Basset, the Duke of Hastings, falls for Daphne in this Shonda Rhimes produced Netflix Regency drama.","answer":"Bridgerton"},{"value":1000,"clue":"Zendaya won two Emmys for playing this character in \"Euphoria.\"","answer":"Rue Bennett"}]}]},{"name":"Double Jeopardy","dailyDoubles":2,"categories":[{"name":"Mormon Pioneers","clues":[{"value":400,"clue":"In 1846 and 1847 the Mormon Battalion marched all the way to this California city.","answer":"San Diego"},{"value":800,"clue":"In 1856 two handcart companies were caught by early snow, the Willie company and this one named for its captain.","answer":"The Martin company"},{"value":1200,"clue":"The pioneer trail followed the north bank of this long Nebraska river.","answer":"The Platte River"},{"value":1600,"clue":"The 1847 vanguard company entered the Salt Lake Valley by coming down through this canyon.","answer":"Emigration Canyon"},{"value":2000,"clue":"After Lt. Col. James Allen died in 1846, command of the Mormon Battalion passed first to a lieutenant and then to this Army officer, who led it to San Diego.","answer":"Philip St. George Cooke"}]},{"name":"Science and Nature","clues":[{"value":400,"clue":"This element with atomic number 6 is the backbone of organic chemistry.","answer":"Carbon"},{"value":800,"clue":"Light travels at roughly this many kilometers per second.","answer":"About 300,000"},{"value":1200,"clue":"This gas makes up about 78 percent of Earth's atmosphere.","answer":"Nitrogen"},{"value":1600,"clue":"Doudna and Charpentier won the 2020 Nobel Prize in Chemistry for developing this gene-editing tool.","answer":"CRISPR"},{"value":2000,"clue":"This particle, discovered at CERN in 2012, is tied to the field that gives other particles mass.","answer":"The Higgs boson"}]},{"name":"Sports","clues":[{"value":400,"clue":"Tight end Travis Kelce plays for this NFL team.","answer":"The Kansas City Chiefs"},{"value":800,"clue":"Caitlin Clark starred at this university before joining the Indiana Fever.","answer":"Iowa"},{"value":1200,"clue":"Lionel Messi joined this MLS club in 2023.","answer":"Inter Miami"},{"value":1600,"clue":"This American golfer won the Masters in both 2022 and 2024.","answer":"Scottie Scheffler"},{"value":2000,"clue":"Rafael Nadal won this many French Open singles titles.","answer":"14"}]},{"name":"World History","clues":[{"value":400,"clue":"The Berlin Wall fell in this year.","answer":"1989"},{"value":800,"clue":"King John of England sealed this charter in 1215.","answer":"The Magna Carta"},{"value":1200,"clue":"Constantinople fell in 1453 to this empire.","answer":"The Ottoman Empire"},{"value":1600,"clue":"The 1648 treaties that ended the Thirty Years' War are named for this German region and gave rise to the modern idea of state sovereignty.","answer":"Westphalia"},{"value":2000,"clue":"Much of the Great Wall that survives today was built under this Chinese dynasty.","answer":"The Ming dynasty"}]},{"name":"Video Games","clues":[{"value":400,"clue":"This company created Fortnite.","answer":"Epic Games"},{"value":800,"clue":"Elden Ring was developed by this Japanese studio.","answer":"FromSoftware"},{"value":1200,"clue":"The Van der Linde gang is at the center of this 2018 Rockstar western.","answer":"Red Dead Redemption 2"},{"value":1600,"clue":"This Pokémon holds number 001 in the National Pokédex.","answer":"Bulbasaur"},{"value":2000,"clue":"This RPG from Larian Studios won Game of the Year at the 2023 Game Awards.","answer":"Baldur's Gate 3"}]},{"name":"Literature","clues":[{"value":400,"clue":"He wrote \"The Great Gatsby.\"","answer":"F. Scott Fitzgerald"},{"value":800,"clue":"This George Orwell novel gave us Big Brother.","answer":"1984"},{"value":1200,"clue":"Elizabeth Bennet's love interest in \"Pride and Prejudice\" has this surname.","answer":"Darcy"},{"value":1600,"clue":"Toni Morrison, the 1993 Nobel laureate, wrote this 1987 novel about Sethe.","answer":"Beloved"},{"value":2000,"clue":"He wrote \"Crime and Punishment\" and \"The Brothers Karamazov.\"","answer":"Fyodor Dostoevsky"}]}]}],"final":{"category":"World Capitals","clue":"Designed largely by Lúcio Costa and Oscar Niemeyer, this planned city became Brazil's capital in 1960.","answer":"Brasília"}};
+const SAVE_KEY = "jeopardy-save-v2";
+let S = null;                 // {teams, scores, round, used, dd}
+let current = null, revealed = false, wager = 0, ddTeamIdx = 0, acted = {};
+
+/* ---------- state ---------- */
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c])); }
+function money(n) { return (n < 0 ? "-" : "") + "$" + Math.abs(n).toLocaleString("en-US"); }
+function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
+function load() { try { const x = JSON.parse(localStorage.getItem(SAVE_KEY)); if (x && x.teams && x.scores) return x; } catch (e) {} return null; }
+
+function pickDailyDoubles() {
+  // one in Single, two (different categories) in Double; never on the cheapest row
+  return DATA.rounds.map(rd => {
+    const cats = rd.categories.map((_, i) => i);
+    for (let i = cats.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cats[i], cats[j]] = [cats[j], cats[i]]; }
+    return cats.slice(0, rd.dailyDoubles).map(c => c + "-" + (1 + Math.floor(Math.random() * 4)));
+  });
+}
+
+function newGame() {
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  S = { teams: S.teams, scores: S.teams.map(() => 0), round: 0, used: {}, dd: pickDailyDoubles() };
+  F = null; save(); render();
+}
+
+/* ---------- board ---------- */
+function usedKey(ci, r) { return S.round + ":" + ci + "-" + r; }
+function render() {
+  const b = document.getElementById("board");
+  b.innerHTML = "";
+  const nb = document.getElementById("nextBtn");
+  if (S.round >= 2) {
+    document.getElementById("roundName").textContent = "Final Jeopardy";
+    b.innerHTML = '<div id="finalPrompt"><div>The board is finished.</div><button onclick="openFinal()">Open Final Jeopardy</button></div>';
+    nb.style.display = "none";
+  } else {
+    const rd = DATA.rounds[S.round];
+    document.getElementById("roundName").textContent = rd.name;
+    nb.style.display = "";
+    nb.textContent = S.round === 0 ? "Go to Double Jeopardy →" : "Go to Final Jeopardy →";
+    rd.categories.forEach(c => { const d = document.createElement("div"); d.className = "cat"; d.textContent = c.name; b.appendChild(d); });
+    for (let r = 0; r < 5; r++) {
+      rd.categories.forEach((c, ci) => {
+        const d = document.createElement("div"), u = S.used[usedKey(ci, r)];
+        d.className = "tile" + (u ? " used" : "");
+        d.textContent = "$" + c.clues[r].value.toLocaleString("en-US");
+        if (!u) d.onclick = () => openClue(ci, r);
+        b.appendChild(d);
+      });
+    }
+  }
+  document.getElementById("scores").innerHTML = S.teams.map((t, i) =>
+    `<div class="team"><b>${esc(t)}</b><span class="${S.scores[i] < 0 ? "neg" : ""}">${money(S.scores[i])}</span></div>`).join("");
+}
+
+function goNext() {
+  const rd = DATA.rounds[S.round];
+  let left = 0;
+  rd.categories.forEach((c, ci) => c.clues.forEach((_, r) => { if (!S.used[usedKey(ci, r)]) left++; }));
+  if (left && !confirm(left + " clue(s) are still unplayed. Move on anyway?")) return;
+  S.round++; save(); render();
+  if (S.round === 2) openFinal();
+}
+
+/* ---------- clues ---------- */
+function roundMax() { return Math.max(...DATA.rounds[S.round].categories.map(c => c.clues[4].value)); }
+
+function openClue(ci, r) {
+  const rd = DATA.rounds[S.round], clue = rd.categories[ci].clues[r];
+  current = { ci, r, key: usedKey(ci, r), value: clue.value, dd: S.dd[S.round].includes(ci + "-" + r) };
+  revealed = false; acted = {};
+  document.getElementById("clueCat").textContent = rd.categories[ci].name + " — $" + clue.value.toLocaleString("en-US");
+  document.getElementById("answerText").textContent = "";
+  document.getElementById("awards").innerHTML = "";
+  document.getElementById("showBtn").style.display = "none";
+  if (current.dd) {
+    document.getElementById("clueText").textContent = "";
+    document.getElementById("dd").style.display = "block";
+    document.getElementById("ddRow").style.display = "flex";
+    document.getElementById("ddTeam").innerHTML = S.teams.map((t, i) => `<option value="${i}">${esc(t)}</option>`).join("");
+    updateWagerMax();
+  } else {
+    document.getElementById("dd").style.display = "none";
+    document.getElementById("ddRow").style.display = "none";
+    document.getElementById("clueText").textContent = clue.clue;
+    document.getElementById("showBtn").style.display = "";
+  }
+  document.getElementById("clueScreen").classList.add("show");
+}
+
+function ddMaxFor(i) { return Math.max(S.scores[i], roundMax()); }
+function updateWagerMax() {
+  const i = +document.getElementById("ddTeam").value, m = ddMaxFor(i), w = document.getElementById("ddWager");
+  w.max = m; w.value = Math.min(+w.value || 500, m);
+  document.getElementById("ddMax").textContent = "Min $5 · Max " + money(m);
+}
+
+function startDD() {
+  ddTeamIdx = +document.getElementById("ddTeam").value;
+  const w = parseInt(document.getElementById("ddWager").value, 10), m = ddMaxFor(ddTeamIdx);
+  if (!Number.isInteger(w) || w < 5 || w > m) { alert("Wager must be a whole number from $5 to " + money(m) + "."); return; }
+  wager = w;
+  document.getElementById("ddRow").style.display = "none";
+  document.getElementById("clueText").textContent = DATA.rounds[S.round].categories[current.ci].clues[current.r].clue;
+  document.getElementById("showBtn").style.display = "";
+}
+
+function showAnswer() {
+  if (!current || revealed || document.getElementById("showBtn").style.display === "none") return;
+  revealed = true;
+  document.getElementById("answerText").textContent = DATA.rounds[S.round].categories[current.ci].clues[current.r].answer;
+  document.getElementById("showBtn").style.display = "none";
+  drawAwards();
+}
+
+function drawAwards() {
+  const amt = current.dd ? wager : current.value;
+  const list = current.dd ? [ddTeamIdx] : S.teams.map((_, i) => i);
+  document.getElementById("awards").innerHTML = list.map(i =>
+    `<div class="award"><b>${esc(S.teams[i])}</b>
+      <button class="yes" ${acted[i] ? "disabled" : ""} onclick="award(${i},${amt})">+ ${money(amt)}</button>
+      <button class="no" ${acted[i] ? "disabled" : ""} onclick="award(${i},${-amt})">− ${money(amt)}</button></div>`).join("");
+}
+
+function award(i, amt) {
+  if (acted[i]) return;
+  acted[i] = true;
+  S.scores[i] += amt;
+  if (current.dd || amt > 0) { closeClue(); return; }   // correct answer (or Daily Double) ends the clue
+  save(); render(); drawAwards();                       // wrong answer: other teams can still try
+}
+
+function closeClue() {
+  if (current) S.used[current.key] = true;
+  current = null;
+  document.getElementById("clueScreen").classList.remove("show");
+  save(); render();
+}
+
+/* ---------- final jeopardy ---------- */
+let F = null; // {stage, eligible, wagers, resolved}
+function openFinal() {
+  if (!F) F = { stage: 0, eligible: S.scores.map((s, i) => s > 0 ? i : -1).filter(i => i >= 0), wagers: {}, resolved: {} };
+  document.getElementById("fCat").textContent = "Category: " + DATA.final.category;
+  document.getElementById("finalScreen").classList.add("show");
+  drawFinal();
+}
+function drawFinal() {
+  const body = document.getElementById("fBody");
+  if (F.stage === 0) {
+    const rows = S.teams.map((t, i) => F.eligible.includes(i)
+      ? `<div class="fw"><b>${esc(t)}</b> (${money(S.scores[i])}) wager $<input id="fw${i}" type="number" min="0" max="${S.scores[i]}" step="1" value="0" style="width:110px"></div>`
+      : `<div class="fw out"><b>${esc(t)}</b> (${money(S.scores[i])}) — sits out (needs a positive score)</div>`).join("");
+    body.innerHTML = `<div class="hint">Collect each team's secret wager, then enter it here. Max wager = the team's score.</div>${rows}
+      <div class="row"><button onclick="lockWagers()">Lock wagers &amp; show clue</button><button class="ghost" onclick="closeFinal()">Back</button></div>`;
+  } else if (F.stage === 1) {
+    body.innerHTML = `<div class="clue">${esc(DATA.final.clue)}</div>
+      <div class="row"><button onclick="F.stage=2;drawFinal()">Reveal answer</button></div>`;
+  } else {
+    const rows = F.eligible.map(i => {
+      const w = F.wagers[i], done = F.resolved[i];
+      return `<div class="award"><b>${esc(S.teams[i])}</b> wagered ${money(w)}<br>` +
+        (done ? (done === "yes" ? "✔ Correct" : "✘ Wrong") :
+          `<button class="yes" onclick="resolveFinal(${i},true)">Correct +${money(w)}</button> <button class="no" onclick="resolveFinal(${i},false)">Wrong −${money(w)}</button>`) + `</div>`;
+    }).join("");
+    const all = F.eligible.every(i => F.resolved[i]);
+    let result = "";
+    if (all) {
+      const top = Math.max(...S.scores), win = S.teams.filter((_, i) => S.scores[i] === top);
+      result = `<div class="answer">${win.length > 1 ? "Tie: " : "Winner: "}${win.map(esc).join(" & ")} with ${money(top)}!</div>`;
+    }
+    body.innerHTML = `<div class="answer">${esc(DATA.final.answer)}</div>${rows || "<div>No eligible teams.</div>"}${result}
+      <div class="row"><button class="ghost" onclick="closeFinal()">Back to scoreboard</button></div>`;
+  }
+}
+function lockWagers() {
+  const w = {};
+  for (const i of F.eligible) {
+    const v = parseInt(document.getElementById("fw" + i).value, 10);
+    if (!Number.isInteger(v) || v < 0 || v > S.scores[i]) { alert("Wager for " + S.teams[i] + " must be a whole number from $0 to " + money(S.scores[i]) + "."); return; }
+    w[i] = v;
+  }
+  F.wagers = w; F.stage = 1; drawFinal();
+}
+function resolveFinal(i, ok) {
+  if (F.resolved[i]) return;
+  F.resolved[i] = ok ? "yes" : "no";
+  S.scores[i] += ok ? F.wagers[i] : -F.wagers[i];
+  save(); render(); drawFinal();
+}
+function closeFinal() { document.getElementById("finalScreen").classList.remove("show"); }
+
+/* ---------- teams ---------- */
+let draft = [];
+function openSetup() { draft = S ? S.teams.slice() : ["Team 1", "Team 2", "Team 3"]; drawInputs(); document.getElementById("setupCancel").style.display = S ? "" : "none"; document.getElementById("setup").classList.add("show"); }
+function drawInputs() {
+  document.getElementById("teamInputs").innerHTML = draft.map((t, i) => `<input value="${esc(t)}" oninput="draft[${i}]=this.value" placeholder="Team ${i + 1}">`).join("");
+}
+function changeTeamCount(d) {
+  const n = Math.min(6, Math.max(1, draft.length + d));
+  while (draft.length < n) draft.push("Team " + (draft.length + 1));
+  draft.length = n; drawInputs();
+}
+function saveTeams() {
+  const names = draft.map((t, i) => t.trim() || "Team " + (i + 1));
+  document.getElementById("setup").classList.remove("show");
+  if (!S) { S = { teams: names, scores: names.map(() => 0), round: 0, used: {}, dd: pickDailyDoubles() }; }
+  else { const old = S.scores; S.teams = names; S.scores = names.map((_, i) => old[i] || 0); }
+  F = null; save(); render();
+}
+
+document.addEventListener("keydown", e => {
+  if (!document.getElementById("clueScreen").classList.contains("show")) return;
+  if (e.key === "Escape" && revealed) closeClue();
+  else if (e.key === " " && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "BUTTON" && document.activeElement.tagName !== "SELECT") { e.preventDefault(); showAnswer(); }
+});
+
+S = load();
+if (S) { render(); if (S.round >= 2) { /* resume at final screen only on demand */ } }
+else openSetup();
+</script>
+</body>
+</html>
